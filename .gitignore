@@ -1,0 +1,12 @@
+# 비밀값·로컬 설정
+.env
+.env.*
+.claude/settings.local.json
+
+# Vercel
+.vercel
+
+# OS·에디터
+.DS_Store
+Thumbs.db
+.vscode/
