@@ -1,8 +1,8 @@
-import { html, fmtDT, remaining } from '../util.js';
+import { html, fmtShort, fmtMD, remaining } from '../util.js';
 import * as st from '../store.js';
 import { JOBS, POSITIONS, UPLOAD_POLICY, JOB_FILTERS, ALERT_CATEGORIES, CAREER_SITE } from '../data/seed.js';
 import { formData, toast, openModal, closeModal, navigate } from '../ui.js';
-import { publicShell, badge, kv, scheduleText, empty } from './common.js';
+import { publicShell, badge, empty } from './common.js';
 
 function jobCard(j) {
   const s = st.jobStatus(j);
@@ -150,77 +150,93 @@ export const home = {
   },
 };
 
+function shortWhen(x) {
+  if (x.tbd) return '추후 안내';
+  if (x.at) return fmtMD(x.at) + (x.tentative ? ' 예정' : '');
+  if (x.from && x.to) return fmtMD(x.from) === fmtMD(x.to) ? fmtMD(x.to) : `${fmtMD(x.from)} ~ ${fmtMD(x.to)}`;
+  if (x.from) return `${fmtMD(x.from)}부터`;
+  return '추후 안내';
+}
+
+function stepState(x, t) {
+  const end = x.at || x.to;
+  const begin = x.at || x.from;
+  if (end && t > new Date(end)) return 'is-done';
+  if (begin && t >= new Date(begin)) return 'is-current';
+  return '';
+}
+
 export const jobDetail = {
   title: '공고 상세',
   render({ id }) {
     const j = st.job(id);
     if (!j) return publicShell(html`<div class="container section">${empty('공고를 찾을 수 없습니다.', html`<a class="btn btn--secondary" href="#/">공고 목록</a>`)}</div>`, 'jobs');
     const s = st.jobStatus(j);
+    const t = st.now();
     const acc = st.currentAccount();
     const mine = acc ? st.draftFor(acc.id, j.id) : null;
+    const f = j.filter || {};
     let cta;
     if (s.key === 'open') {
-      if (mine?.status === 'submitted') cta = html`<a class="btn btn--primary btn--lg" href="#/me/${mine.id}">접수 내역 확인</a>`;
-      else cta = html`<a class="btn btn--primary btn--lg" href="#/apply/${j.id}">${mine ? '이어서 작성하기' : '지원하기'}</a>`;
-    } else cta = html`<button class="btn btn--primary btn--lg" disabled>${s.label}</button>`;
+      if (mine?.status === 'submitted') cta = html`<a class="btn btn--primary btn--lg btn--block" href="#/me/${mine.id}">접수 내역 확인</a>`;
+      else cta = html`<a class="btn btn--primary btn--lg btn--block" href="#/apply/${j.id}">${mine ? '이어서 작성하기' : '지원하기'}</a>`;
+    } else cta = html`<button class="btn btn--primary btn--lg btn--block" disabled>${s.label}</button>`;
+
+    const facts = html`<dl class="facts">
+      <div><dt>접수</dt><dd>${fmtShort(j.apply.from)} ~ ${j.apply.to ? fmtShort(j.apply.to) : '추후 안내'}</dd></div>
+      <div><dt>고용형태</dt><dd>${j.employment}</dd></div>
+      <div><dt>근무지</dt><dd>${j.place}</dd></div>
+      <div><dt>제출 후 수정</dt><dd>${j.allowResubmit ? '마감 전 재제출 가능' : '불가'}</dd></div>
+    </dl>`;
+
     return publicShell(html`
       <div class="container section">
         <nav class="crumbs" aria-label="위치"><a href="#/">채용공고</a> <span aria-hidden="true">›</span> <span>${j.title}</span></nav>
-        <div class="job-head">
-          <div>
-            <div class="job-head__badges">${badge(s.label, s.tone)} ${badge('데모용 가상 공고', 'neutral')}</div>
-            <h1 class="page-title">${j.title}</h1>
-            <p class="page-sub">${j.summary}</p>
+        <header class="jd__head">
+              <div class="row gap wrap">${badge(s.label, s.tone)}${s.key === 'open' && j.apply.to ? html`<strong class="jd__remain">${remaining(j.apply.to, t)}</strong>` : ''}</div>
+              <h1 class="page-title">${j.title}</h1>
+              <ul class="job-card__tags">${[f.type, f.career, f.place].filter(Boolean).map((x) => html`<li>${x}</li>`)}</ul>
+            </header>
+        <div class="jd">
+          <div class="jd__main">
+
+            ${j.positions.length ? html`<section class="jd__sec" aria-labelledby="pos-title">
+              <h2 class="h2" id="pos-title">모집 직무 <span class="section-count">${j.positions.length}</span></h2>
+              <div class="pos-list">${j.positions.map((pid, i) => { const p = POSITIONS[pid]; return html`<details class="pos" ${i === 0 ? 'open' : ''}>
+                <summary><strong>${p.name}</strong><span class="muted small">${p.headcount}명</span></summary>
+                <div class="pos__body">
+                  <div><h3 class="pos__h">주요 업무</h3><ul>${p.duties.map((d) => html`<li>${d}</li>`)}</ul></div>
+                  <div><h3 class="pos__h">자격 요건</h3><ul>${p.quals.map((d) => html`<li>${d}</li>`)}</ul></div>
+                  ${p.prefs.length ? html`<div><h3 class="pos__h">우대 사항</h3><ul>${p.prefs.map((d) => html`<li>${d}</li>`)}</ul></div>` : ''}
+                </div>
+              </details>`; })}</div>
+            </section>` : html`<section class="jd__sec">${empty('모집 직무는 추후 안내합니다.')}</section>`}
+
+            <section class="jd__sec" aria-labelledby="sch-title">
+              <h2 class="h2" id="sch-title">전형 일정</h2>
+              <ol class="jsteps">${j.schedule.map((x) => html`<li class="${stepState(x, t)}"><span class="jsteps__dot" aria-hidden="true"></span><strong>${x.label}</strong><span>${shortWhen(x)}</span></li>`)}</ol>
+              <p class="muted small">모든 시각은 한국시간 · 일정이 바뀌면 아래 변경 이력에 남깁니다.</p>
+            </section>
+
+            ${j.evidenceDeadline ? html`<section class="jd__sec" aria-labelledby="ev-title">
+              <h2 class="h2" id="ev-title">서류 합격 후 증빙서류 <span class="muted small">~ ${fmtShort(j.evidenceDeadline)}</span></h2>
+              <ul class="ev-chips">
+                <li><span class="badge badge--danger">필수</span> 학력 · 졸업·성적증명서</li>
+                <li><span class="badge badge--danger">필수</span> 경력 · 경력·재직증명서 <span class="muted small">(4대보험 자격득실확인서 대체 가능)</span></li>
+                <li><span class="badge badge--neutral">선택</span> 어학성적 · 자격증</li>
+              </ul>
+            </section>` : ''}
+
+            <section class="jd__sec jd__more">
+              <details><summary>개인정보 안내</summary><p>채용 진행에 필요한 정보만 받고, 증빙서류는 서류 합격자에게만 요청합니다. 보유 기간과 파기 방식은 운영 기관이 확정한 정책에 따릅니다. <span class="muted">(데모 문구)</span></p></details>
+              <details><summary>공고 변경 이력 <span class="muted small">${j.changes.length}</span></summary><ul class="log-list">${j.changes.map((c) => html`<li><time>${fmtShort(c.at)}</time> ${c.text}</li>`)}</ul></details>
+            </section>
           </div>
-          <div class="job-head__cta">${cta}${s.key === 'open' && j.apply.to ? html`<p class="muted small">${remaining(j.apply.to, st.now())}</p>` : ''}</div>
+
+          <aside class="jd__side" aria-label="지원 요약">
+            <div class="jd__card">${facts}${cta}</div>
+          </aside>
         </div>
-        <div class="grid-2">
-          <section class="card">
-            <h2 class="h2">모집 개요</h2>
-            ${kv([
-              ['고용 형태', j.employment],
-              ['근무지', j.place],
-              ['접수 기간', html`${fmtDT(j.apply.from)} ~ ${j.apply.to ? fmtDT(j.apply.to, { tz: true }) : '추후 안내'}`],
-              ['접수 방법', '이 사이트에서 이메일 인증 후 온라인 지원서 작성'],
-              ['재제출', j.allowResubmit ? '마감 전까지 수정 후 재제출 가능 (마지막 제출본이 유효)' : '최종 제출 후 수정 불가'],
-            ])}
-          </section>
-          <section class="card">
-            <h2 class="h2">전형 절차와 일정</h2>
-            <ol class="schedule">
-              ${j.schedule.map((x) => html`<li><span class="schedule__label">${x.label}</span><span class="schedule__value">${scheduleText(x)}</span></li>`)}
-            </ol>
-            <p class="muted small">일정이 바뀌면 변경 시각과 내용을 아래 ‘공고 변경 이력’에 남깁니다.</p>
-          </section>
-        </div>
-        ${j.positions.length ? html`<section class="section-sm">
-          <h2 class="h2">모집 직무</h2>
-          <div class="position-list">${j.positions.map((pid) => { const p = POSITIONS[pid]; return html`<article class="card position">
-            <h3 class="h3">${p.name} <span class="muted small">${p.headcount}명</span></h3>
-            <div class="grid-3">
-              <div><h4 class="h4">주요 업무</h4><ul>${p.duties.map((d) => html`<li>${d}</li>`)}</ul></div>
-              <div><h4 class="h4">자격 요건</h4><ul>${p.quals.map((d) => html`<li>${d}</li>`)}</ul></div>
-              <div><h4 class="h4">우대 사항</h4><ul>${p.prefs.length ? p.prefs.map((d) => html`<li>${d}</li>`) : html`<li>없음</li>`}</ul></div>
-            </div></article>`; })}</div>
-        </section>` : ''}
-        ${j.id === 'J26H2' ? html`<section class="card section-sm">
-          <h2 class="h2">서류 합격 후 제출할 증빙서류</h2>
-          <p>서류전형 합격자에게만 제출 화면이 열립니다. 지원서에 적은 항목별로 연결해 제출합니다.</p>
-          <ul>
-            <li><strong>학력(필수):</strong> 기재한 학력(학사·석사·박사) 전부의 졸업증명서와 성적증명서</li>
-            <li><strong>경력(필수):</strong> 기재한 경력별 경력증명서 또는 재직증명서 — 발급이 어려우면 4대보험 자격득실확인서로 대체 가능</li>
-            <li><strong>선택:</strong> 어학성적표, 자격증 사본 (내지 않아도 접수됩니다)</li>
-          </ul>
-          <p class="muted small">제출 마감: ${fmtDT(j.evidenceDeadline, { tz: true })} · 주민등록번호 뒷자리는 가린 뒤 제출해 주세요.</p>
-        </section>` : ''}
-        <section class="card section-sm">
-          <h2 class="h2">개인정보 안내 (요약)</h2>
-          <p>채용 진행에 필요한 정보만 받고, 증빙서류는 서류 합격자에게만 요청합니다. 보유 기간과 파기 방식은 운영 기관이 확정한 정책에 따릅니다. <span class="muted">(데모: 실제 정책 문구 아님)</span></p>
-        </section>
-        <section class="card section-sm">
-          <h2 class="h2">공고 변경 이력</h2>
-          <ul class="log-list">${j.changes.map((c) => html`<li><time>${fmtDT(c.at)}</time> ${c.text}</li>`)}</ul>
-        </section>
       </div>`, 'jobs');
   },
 };
