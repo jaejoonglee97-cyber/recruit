@@ -19,7 +19,7 @@ export function demoBar() {
   return html`<div class="demo-bar" role="note">
     <div class="container demo-bar__inner">
       <span class="demo-bar__label">시제품(데모)</span>
-      <span class="demo-bar__text">실제 아산나눔재단 채용 접수처가 아닙니다. 공고·지원자·심사 정보는 모두 가상입니다.</span>
+      <span class="demo-bar__text">실제 접수처가 아닙니다 · 모든 정보는 가상</span>
       <span class="demo-bar__clock">데모 기준 시각 <strong data-clock>${fmtShort(st.now())}</strong></span>
       <button type="button" class="demo-bar__btn" data-action="open-demo">데모 설정</button>
     </div>
@@ -64,9 +64,8 @@ export function siteFooter() {
     <div class="container site-footer__inner">
       <img src="assets/brand/logo-horizontal-green.png" alt="${ORG.name}" width="117" height="32" class="site-footer__logo">
       <div class="site-footer__text">
-        <p><strong>통합 채용시스템 시제품</strong> · 지원서 작성부터 결과 확인, 증빙 제출, 면접 안내까지 한곳에서 이어지는 흐름을 시연합니다.</p>
-        <p>이 사이트는 데모입니다. 표시되는 공고·지원자·담당자·연락처는 모두 가상이며 실제 채용과 관계가 없습니다. 입력한 내용은 이 브라우저에만 저장되고 서버로 전송되지 않습니다.</p>
-        <p>문의(데모): ${ORG.contact}</p>
+        <p><strong>채용 문의</strong> ${ORG.contact}</p>
+        <p>데모 사이트 · 모든 정보는 가상이며 입력값은 이 브라우저에만 저장됩니다.</p>
       </div>
       ${snsLinks()}
     </div>
