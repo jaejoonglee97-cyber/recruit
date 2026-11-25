@@ -1,4 +1,4 @@
-import { html, fmtDT, fmtShort, fmtTime, fmtBytes, remaining, debounce, fmtMD } from '../util.js';
+import { html, raw, fmtDT, fmtShort, fmtTime, fmtBytes, remaining, debounce, fmtMD } from '../util.js';
 import * as st from '../store.js';
 import { POSITIONS, UPLOAD_POLICY, STAGES } from '../data/seed.js';
 import { personaTags } from '../data/personas.js';
@@ -254,7 +254,11 @@ export function applicationView(a, { blind = false, schoolMask = false } = {}) {
         ['성명', blind ? html`<span class="masked">블라인드</span>` : f.name],
         ['이메일', blind ? html`<span class="masked">블라인드</span>` : f.email],
         ['연락처', blind ? html`<span class="masked">블라인드</span>` : f.phone],
+        f.nameEn ? ['영문이름', blind ? html`<span class="masked">블라인드</span>` : f.nameEn] : null,
+        f.birth ? ['생년월일', blind ? html`<span class="masked">블라인드</span>` : f.birth] : null,
         ['지원분야', POSITIONS[f.positionId]?.name],
+        f.military ? ['병역', f.military] : null,
+        f.veteran || f.disability ? ['취업우대', [f.veteran && '보훈', f.disability && '장애'].filter(Boolean).join(', ')] : null,
       ])}
     </section>
     <section class="card">
@@ -264,6 +268,8 @@ export function applicationView(a, { blind = false, schoolMask = false } = {}) {
       ${f.career.length ? html`<ul class="plain">${f.career.map((c) => html`<li><strong>${carText(c)}</strong><br><span class="muted small">${c.duties}</span></li>`)}</ul>` : html`<p class="muted">경력 없음</p>`}
       <h3 class="h3">자격·어학</h3>
       ${f.certs.length ? html`<ul class="plain">${f.certs.map((q) => html`<li>${certText(q)}</li>`)}</ul>` : html`<p class="muted">없음</p>`}
+      ${f.activities?.length ? html`<h3 class="h3">수상·활동·교육</h3><ul class="plain">${f.activities.map((x) => html`<li>[${x.kind}] ${x.name}${x.org ? ` · ${x.org}` : ''}${x.from ? ` · ${x.from} ~ ${x.to || ''}` : ''}${x.desc ? html`<br><span class="muted small">${x.desc}</span>` : ''}</li>`)}</ul>` : ''}
+      ${f.attachment ? html`<h3 class="h3">추가 제출서류</h3><p>📄 ${f.attachment.name} <span class="muted small">${fmtBytes(f.attachment.size)}</span></p>` : ''}
     </section>
     <section class="card">
       <h3 class="h3">서술형</h3>
@@ -287,22 +293,37 @@ export const submitted = {
   },
 };
 
-// ───────── 지원서 작성 ─────────
-const STEPS = ['기본정보', '학력', '경력', '자격·어학', '자기소개서', '개인정보 안내', '최종 확인'];
+// ───────── 지원서 작성 (한 페이지 + 오른쪽 목차) ─────────
+const SECTIONS = [
+  { id: 'basic', label: '기본정보', keys: ['positionId', 'name', 'nameEn', 'birth', 'phone'] },
+  { id: 'military', label: '병역 / 취업우대', keys: ['military'] },
+  { id: 'edu', label: '학력사항', keys: ['education', 'edu-'] },
+  { id: 'career', label: '경력사항', keys: ['car-'] },
+  { id: 'extra', label: '어학 / 자격 / 활동', keys: ['act-'] },
+  { id: 'files', label: '제출서류', keys: ['attachment'] },
+  { id: 'questions', label: '추가질문', keys: ['essay-', 'source'] },
+  { id: 'consent', label: '개인정보 동의', keys: ['consent'] },
+];
+const secOf = (k) => SECTIONS.find((s) => s.keys.some((x) => (x.endsWith('-') ? k.startsWith(x) : k === x)))?.id;
+const SOURCES = ['아산나눔재단 홈페이지', '아산나눔재단 뉴스레터', '아산나눔재단 SNS', '사람인', '잡코리아', '링크드인', '로켓펀치', '링커리어', '대학 취업지원실', '지인 소개', '기타'];
+const ACT_KINDS = ['수상', '대외활동', '봉사활동', '교육이수'];
 let formErrors = {};
 let submitting = false;
 
 function blankForm(acc, j) {
   return {
     positionId: j.positions.length === 1 ? j.positions[0] : '',
-    name: acc.name || '', email: acc.email, phone: acc.phone || '',
-    education: [{ id: 'e1', school: '', major: '', degree: '학사', status: '졸업', from: '', to: '' }],
-    career: [], certs: [], essays: {}, consent: { agreed: false },
+    name: acc.name || '', nameEn: '', birth: '', email: acc.email, phone: acc.phone || '',
+    military: '', veteran: false, disability: false,
+    education: [{ id: 'e1', school: '', major: '', degree: '학사', status: '졸업', entry: '입학', from: '', to: '', gpa: '', gpaMax: '4.5' }],
+    career: [], certs: [], activities: [], attachment: null, essays: {}, source: '', sourceEtc: '',
+    consent: { agreed: false, optional: false, thirdParty: false },
   };
 }
 
 function serialize(formEl, prev) {
   const g = (n) => formEl.querySelector(`[name="${n}"]`);
+  const val = (n, d) => (g(n) ? (g(n).type === 'checkbox' ? g(n).checked : g(n).value) : d);
   const rows = (kind) => [...formEl.querySelectorAll(`[data-row="${kind}"]`)].map((r) => {
     const o = { id: r.dataset.id };
     for (const el of r.querySelectorAll('[data-f]')) o[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value;
@@ -312,35 +333,56 @@ function serialize(formEl, prev) {
   for (const el of formEl.querySelectorAll('[data-essay]')) essays[el.dataset.essay] = el.value;
   return {
     ...prev,
-    positionId: g('positionId')?.value ?? prev.positionId,
-    name: g('name')?.value ?? prev.name,
-    phone: g('phone')?.value ?? prev.phone,
+    positionId: val('positionId', prev.positionId),
+    name: val('name', prev.name), nameEn: val('nameEn', prev.nameEn), birth: val('birth', prev.birth), phone: val('phone', prev.phone),
+    military: val('military', prev.military), veteran: val('veteran', prev.veteran), disability: val('disability', prev.disability),
     education: rows('edu'),
     career: rows('car').map((c) => ({ ...c, to: c.current ? null : c.to })),
     certs: rows('cert'),
+    activities: rows('act'),
     essays: { ...prev.essays, ...essays },
-    consent: { ...prev.consent, agreed: !!g('consent')?.checked },
+    source: formEl.querySelector('[name="source"]:checked')?.value ?? prev.source ?? '',
+    sourceEtc: val('sourceEtc', prev.sourceEtc),
+    consent: { ...prev.consent, agreed: !!val('consent'), optional: !!val('consentOptional'), thirdParty: !!val('consentThird') },
   };
 }
 
 const err = (k) => (formErrors[k] ? html`<span class="field__error" id="err-${k}">${formErrors[k]}</span>` : '');
 const errAttr = (k) => (formErrors[k] ? html`aria-invalid="true" aria-describedby="err-${k}"` : '');
-
-function stepFields(step, keys) {
-  return keys.filter((k) => formErrors[k]);
-}
+const req = html`<span class="req-dot" aria-label="필수">*</span>`;
+const lbl = (text, required = false) => html`<span class="field__label">${text}${required ? req : ''}</span>`;
+const sel = (attrs, opts, cur, placeholder = '선택') => html`<select class="input" ${typeof attrs === 'string' ? raw(attrs) : attrs}><option value="">${placeholder}</option>${opts.map((o) => html`<option ${cur === o ? 'selected' : ''}>${o}</option>`)}</select>`;
 
 function currentFormState(jobId) {
   const acc = st.currentAccount();
   const j = st.job(jobId);
   const a = st.draftFor(acc.id, jobId);
-  const form = a?.pendingForm || a?.form || blankForm(acc, j);
+  const base = blankForm(acc, j);
+  const saved = a?.pendingForm || a?.form;
+  const form = saved ? { ...base, ...saved, consent: { ...base.consent, ...saved.consent } } : base;
   return { acc, j, a, form };
+}
+
+function repeatBlock(kind, label, rows, body, { min = 0 } = {}) {
+  return html`${rows.map((r, i) => html`<div class="repeat" data-row="${kind}" data-id="${r.id}">
+      <div class="repeat__head"><strong>${label} ${i + 1}</strong>${rows.length > min ? html`<button type="button" class="link-btn small" data-action="remove-row" data-kind="${kind}" data-id="${r.id}">삭제</button>` : ''}</div>
+      ${body(r, i)}
+    </div>`)}
+    <button type="button" class="btn-add" data-action="add-row" data-kind="${kind}">+ ${label} 추가</button>`;
+}
+
+function sectionDone(id, form, j) {
+  if (id === 'basic') return !!(form.positionId && form.name && form.nameEn && form.birth && form.phone);
+  if (id === 'military') return !!form.military;
+  if (id === 'edu') return form.education.length > 0 && form.education.every((e) => e.school && e.major);
+  if (id === 'questions') return j.questions.every((q) => (form.essays?.[q.key] || '').trim()) && !!form.source;
+  if (id === 'consent') return !!form.consent?.agreed;
+  return null; // 선택 섹션
 }
 
 export const apply = {
   title: '지원서 작성',
-  render({ jobId }, q) {
+  render({ jobId }) {
     if (requireLogin(`/apply/${jobId}`)) return publicShell('', 'jobs');
     const { j, a, form } = currentFormState(jobId);
     if (!j) return publicShell(html`<div class="container section">${empty('공고를 찾을 수 없습니다.')}</div>`, 'jobs');
@@ -350,128 +392,160 @@ export const apply = {
     }
     if (a?.status === 'withdrawn') return publicShell(html`<div class="container section narrow">${empty('철회한 지원 건입니다. 이 공고는 동일 공고 중복 지원을 허용하지 않습니다.', html`<a class="btn btn--secondary" href="#/me">내 지원현황</a>`)}</div>`, 'jobs');
     if (js.key !== 'open' && !a) return publicShell(html`<div class="container section narrow">${empty(`${js.label} 공고입니다. 지금은 지원할 수 없습니다.`, html`<a class="btn btn--secondary" href="#/jobs/${j.id}">공고 보기</a>`)}</div>`, 'jobs');
-    const step = Math.min(7, Math.max(1, Number(q.step) || 1));
     const closed = js.key !== 'open';
-    const hidden = (n) => (n === step ? '' : html`hidden`);
     const errKeys = Object.keys(formErrors);
+    const errSecs = new Set(errKeys.map(secOf));
     const editing = !!a?.pendingForm;
+    const f = j.filter || {};
+    const c = form.consent || {};
+    const allConsent = c.agreed && c.optional && c.thirdParty;
+
     return publicShell(html`
       <div class="container section">
-        <nav class="crumbs"><a href="#/jobs/${j.id}">${j.title}</a> › <span>지원서 작성</span></nav>
-        <div class="apply-head">
-          <div>
-            <h1 class="page-title">${editing ? '지원서 수정 후 재제출' : '지원서 작성'}</h1>
-            <p class="page-sub">${j.title} · 접수 마감 <strong>${fmtDT(j.apply.to, { tz: true })}</strong> ${closed ? badge('접수 마감', 'danger') : html`<span class="muted">(${remaining(j.apply.to, st.now())})</span>`}</p>
-          </div>
-          <p class="save-status" data-save-status aria-live="polite">${a?.savedAt ? html`자동 저장됨 · <time>${fmtTime(a.savedAt, true)}</time>` : '입력하면 자동으로 저장됩니다'}</p>
-        </div>
+        <a class="back-link" href="#/jobs/${j.id}">← 공고로 돌아가기</a>
+        <header class="jd__head">
+          <h1 class="page-title">${j.title}</h1>
+          <ul class="job-card__tags">${[f.type, f.career, f.place].filter(Boolean).map((x) => html`<li>${x}</li>`)}<li>마감 ${fmtShort(j.apply.to)}</li></ul>
+        </header>
         ${closed ? html`<div class="alert alert--danger" role="alert"><strong>접수 기간이 끝났습니다.</strong> 임시저장한 내용은 볼 수 있지만 제출할 수 없습니다.${a?.lateAttemptAt ? ` 마감 이후 ${fmtDT(a.lateAttemptAt, { tz: true })}에 제출 시도 기록이 있습니다.` : ''}</div>` : ''}
-        ${editing ? html`<div class="alert alert--info">제출한 지원서는 그대로 유효합니다. 수정 내용은 ‘최종 제출’을 다시 눌러야 새 버전으로 접수됩니다. <button type="button" class="link-btn" data-action="cancel-edit" data-id="${a.id}">수정 취소</button></div>` : ''}
-        <ol class="stepper" aria-label="작성 단계">
-          ${STEPS.map((s, i) => html`<li class="stepper__item ${i + 1 === step ? 'is-current' : i + 1 < step ? 'is-done' : ''}"><button type="button" class="stepper__btn" data-action="goto-step" data-step="${i + 1}" ${i + 1 === step ? html`aria-current="step"` : ''}><span class="stepper__n">${i + 1}</span><span class="stepper__label">${s}</span></button></li>`)}
-        </ol>
-        ${errKeys.length ? html`<div class="alert alert--danger" role="alert" tabindex="-1" id="error-summary"><strong>확인이 필요한 항목이 ${errKeys.length}개 있습니다.</strong><ul>${errKeys.map((k) => html`<li>${formErrors[k]}</li>`)}</ul></div>` : ''}
-        <form data-form="apply" data-job="${j.id}" class="apply-form card" novalidate data-oninput="autosave">
-          <fieldset ${hidden(1)}>
-            <legend class="h2">기본정보</legend>
-            <label class="field"><span class="field__label">지원분야 <span class="req">필수</span></span>
-              <select name="positionId" class="input" ${errAttr('positionId')}>
-                <option value="">선택해 주세요</option>
-                ${j.positions.map((p) => html`<option value="${p}" ${form.positionId === p ? 'selected' : ''}>${POSITIONS[p].name}</option>`)}
-              </select>${err('positionId')}</label>
-            <div class="grid-2">
-              <label class="field"><span class="field__label">성명 <span class="req">필수</span></span><input name="name" class="input" autocomplete="name" value="${form.name}" ${errAttr('name')}>${err('name')}</label>
-              <label class="field"><span class="field__label">휴대전화 <span class="req">필수</span></span><input name="phone" class="input" inputmode="tel" autocomplete="tel" placeholder="010-0000-0000" value="${form.phone}" ${errAttr('phone')}>${err('phone')}</label>
-            </div>
-            <label class="field"><span class="field__label">이메일 (인증 완료)</span><input class="input" value="${form.email}" readonly aria-readonly="true"><span class="field__help">인증한 이메일로 결과와 안내를 보냅니다. 변경은 별도 확인 절차가 필요합니다.</span></label>
-          </fieldset>
+        ${editing ? html`<div class="alert alert--info">제출한 지원서는 그대로 유효합니다. 고친 뒤 ‘재제출’을 눌러야 새 버전으로 접수됩니다. <button type="button" class="link-btn" data-action="cancel-edit" data-id="${a.id}">수정 취소</button></div>` : ''}
 
-          <fieldset ${hidden(2)}>
-            <legend class="h2">학력</legend>
-            <p class="muted small">기재한 학력은 서류 합격 후 졸업·성적증명서 제출 대상이 됩니다.</p>
-            ${err('education')}
-            ${form.education.map((e, i) => html`<div class="repeat" data-row="edu" data-id="${e.id}">
-              <div class="repeat__head"><strong>학력 ${i + 1}</strong>${form.education.length > 1 ? html`<button type="button" class="link-btn" data-action="remove-row" data-kind="education" data-id="${e.id}">삭제</button>` : ''}</div>
-              <div class="grid-3">
-                <label class="field"><span class="field__label">학교명</span><input class="input" data-f="school" value="${e.school}" ${errAttr(`edu-${i}`)}></label>
-                <label class="field"><span class="field__label">전공</span><input class="input" data-f="major" value="${e.major}"></label>
-                <label class="field"><span class="field__label">학위</span><select class="input" data-f="degree">${['학사', '석사', '박사', '전문학사'].map((d) => html`<option ${e.degree === d ? 'selected' : ''}>${d}</option>`)}</select></label>
-                <label class="field"><span class="field__label">상태</span><select class="input" data-f="status">${['졸업', '졸업예정', '수료', '재학', '중퇴'].map((d) => html`<option ${e.status === d ? 'selected' : ''}>${d}</option>`)}</select></label>
-                <label class="field"><span class="field__label">입학 (연.월)</span><input class="input" data-f="from" placeholder="2018.03" value="${e.from}"></label>
-                <label class="field"><span class="field__label">졸업 (연.월)</span><input class="input" data-f="to" placeholder="2022.02" value="${e.to}"></label>
-              </div>${err(`edu-${i}`)}
-            </div>`)}
-            <button type="button" class="btn btn--secondary" data-action="add-row" data-kind="education">+ 학력 추가</button>
-          </fieldset>
+        <div class="af">
+          <form data-form="apply" data-job="${j.id}" class="af__main" novalidate data-oninput="autosave">
+            ${errKeys.length ? html`<div class="alert alert--danger" role="alert" tabindex="-1" id="error-summary"><strong>확인이 필요한 항목이 ${errKeys.length}개 있습니다.</strong><ul>${errKeys.map((k) => html`<li data-err="${k}">${formErrors[k]}</li>`)}</ul></div>` : ''}
 
-          <fieldset ${hidden(3)}>
-            <legend class="h2">경력</legend>
-            <p class="muted small">경력이 없으면 비워 두고 다음으로 넘어가세요. 경력별로 경력증명서 또는 재직증명서를 나중에 연결합니다.</p>
-            ${form.career.map((c, i) => html`<div class="repeat" data-row="car" data-id="${c.id}">
-              <div class="repeat__head"><strong>경력 ${i + 1}</strong><button type="button" class="link-btn" data-action="remove-row" data-kind="career" data-id="${c.id}">삭제</button></div>
-              <div class="grid-3">
-                <label class="field"><span class="field__label">기관명</span><input class="input" data-f="org" value="${c.org}" ${errAttr(`car-${i}`)}></label>
-                <label class="field"><span class="field__label">직위·직무</span><input class="input" data-f="title" value="${c.title}"></label>
-                <label class="check field--check"><input type="checkbox" data-f="current" ${c.current ? 'checked' : ''}> 재직 중</label>
-                <label class="field"><span class="field__label">시작 (연.월)</span><input class="input" data-f="from" placeholder="2021.03" value="${c.from}"></label>
-                <label class="field"><span class="field__label">종료 (연.월)</span><input class="input" data-f="to" placeholder="재직 중이면 비움" value="${c.to || ''}"></label>
+            <section class="af__sec" id="sec-basic">
+              <div class="af__sec-head"><h2 class="h2">기본정보</h2><span class="muted small">${req} 필수 입력</span></div>
+              ${j.positions.length > 1 ? html`<label class="field">${lbl('지원분야', true)}
+                <select name="positionId" class="input" ${errAttr('positionId')}><option value="">선택</option>${j.positions.map((p) => html`<option value="${p}" ${form.positionId === p ? 'selected' : ''}>${POSITIONS[p].name}</option>`)}</select>${err('positionId')}</label>` : html`<input type="hidden" name="positionId" value="${form.positionId}">`}
+              <div class="grid-2">
+                <label class="field">${lbl('이름', true)}<input name="name" class="input" autocomplete="name" value="${form.name}" ${errAttr('name')}>${err('name')}</label>
+                <label class="field">${lbl('영문이름', true)}<input name="nameEn" class="input" autocomplete="off" placeholder="Hong Gildong" value="${form.nameEn}" ${errAttr('nameEn')}>${err('nameEn')}</label>
+                <label class="field">${lbl('생년월일', true)}<input name="birth" type="date" class="input" value="${form.birth}" ${errAttr('birth')}>${err('birth')}</label>
+                <label class="field">${lbl('연락처', true)}<input name="phone" class="input" inputmode="tel" autocomplete="tel" placeholder="010-0000-0000" value="${form.phone}" ${errAttr('phone')}>${err('phone')}</label>
               </div>
-              <label class="field"><span class="field__label">담당 업무</span><textarea class="input" rows="2" data-f="duties">${c.duties || ''}</textarea></label>
-              ${err(`car-${i}`)}
-            </div>`)}
-            <button type="button" class="btn btn--secondary btn--add" data-action="add-row" data-kind="career">+ 경력 추가</button>
-          </fieldset>
+              <label class="field">${lbl('이메일')}<input class="input" value="${form.email}" readonly aria-readonly="true"><span class="field__help">로그인 때 인증한 주소로 결과를 안내합니다.</span></label>
+            </section>
 
-          <fieldset ${hidden(4)}>
-            <legend class="h2">자격·어학</legend>
-            <p class="muted small">선택 입력입니다. 입력한 항목은 서류 합격 후 ‘선택 서류’로 사본을 낼 수 있습니다.</p>
-            ${form.certs.map((cq, i) => html`<div class="repeat" data-row="cert" data-id="${cq.id}">
-              <div class="repeat__head"><strong>항목 ${i + 1}</strong><button type="button" class="link-btn" data-action="remove-row" data-kind="certs" data-id="${cq.id}">삭제</button></div>
-              <div class="grid-3">
-                <label class="field"><span class="field__label">구분</span><select class="input" data-f="kind"><option value="cert" ${cq.kind === 'cert' ? 'selected' : ''}>자격증</option><option value="lang" ${cq.kind === 'lang' ? 'selected' : ''}>어학</option></select></label>
-                <label class="field"><span class="field__label">자격·시험명</span><input class="input" data-f="name" value="${cq.name}"></label>
-                <label class="field"><span class="field__label">점수·등급</span><input class="input" data-f="score" value="${cq.score || ''}"></label>
-                <label class="field"><span class="field__label">발급기관</span><input class="input" data-f="issuer" value="${cq.issuer || ''}"></label>
-                <label class="field"><span class="field__label">취득일 (연.월)</span><input class="input" data-f="date" value="${cq.date || ''}"></label>
+            <section class="af__sec" id="sec-military">
+              <h2 class="h2">병역 / 취업우대</h2>
+              <div class="grid-2">
+                <label class="field">${lbl('병역사항', true)}${sel(html`name="military" ${errAttr('military')}`, ['군필', '미필', '면제', '복무 중', '해당 없음'], form.military)}${err('military')}</label>
+                <div class="field">${lbl('취업우대 (해당 시)')}
+                  <div class="row gap wrap"><label class="check"><input type="checkbox" name="veteran" ${form.veteran ? 'checked' : ''}> 보훈 대상</label><label class="check"><input type="checkbox" name="disability" ${form.disability ? 'checked' : ''}> 장애</label></div>
+                  <span class="field__help">증빙은 서류 합격 후 받습니다.</span></div>
               </div>
-            </div>`)}
-            <button type="button" class="btn btn--secondary" data-action="add-row" data-kind="certs">+ 자격·어학 추가</button>
-          </fieldset>
+            </section>
 
-          <fieldset ${hidden(5)}>
-            <legend class="h2">자기소개서</legend>
-            ${j.questions.map((qq) => { const v = form.essays?.[qq.key] || ''; return html`<label class="field"><span class="field__label">${qq.label} <span class="req">필수</span></span>
-              <span class="field__help">${qq.help}</span>
-              <textarea class="input" rows="8" data-essay="${qq.key}" data-limit="${qq.limit}" ${errAttr(`essay-${qq.key}`)}>${v}</textarea>
-              <span class="counter ${v.length > qq.limit ? 'is-over' : ''}" data-count-for="${qq.key}">${v.length} / ${qq.limit}자</span>${err(`essay-${qq.key}`)}</label>`; })}
-            <p class="muted small">블라인드 심사를 위해 출신 학교·가족 관계 등 직무와 무관한 정보는 쓰지 말아 주세요.</p>
-          </fieldset>
+            <section class="af__sec" id="sec-edu">
+              <h2 class="h2">학력사항</h2>
+              <p class="af__hint">고등학교를 제외한 학사 이상 학력을 모두 적어 주세요. 서류 합격 후 졸업·성적증명서를 받습니다.</p>
+              ${err('education')}
+              ${repeatBlock('edu', '학력', form.education, (e, i) => html`
+                <div class="grid-3">
+                  <label class="field">${lbl('학위', true)}${sel('data-f="degree"', ['전문학사', '학사', '석사', '박사'], e.degree)}</label>
+                  <label class="field">${lbl('학교명', true)}<input class="input" data-f="school" value="${e.school}" ${errAttr(`edu-${i}`)}></label>
+                  <label class="field">${lbl('전공', true)}<input class="input" data-f="major" value="${e.major}"></label>
+                  <label class="field">${lbl('입학 (연.월)', true)}<input class="input" data-f="from" placeholder="2018.03" value="${e.from}"></label>
+                  <label class="field">${lbl('졸업 (연.월)')}<input class="input" data-f="to" placeholder="2022.02" value="${e.to}"></label>
+                  <label class="field">${lbl('졸업구분', true)}${sel('data-f="status"', ['졸업', '졸업예정', '수료', '재학', '휴학', '중퇴'], e.status)}</label>
+                  <label class="field">${lbl('입학구분')}${sel('data-f="entry"', ['입학', '편입'], e.entry || '입학')}</label>
+                  <div class="field">${lbl('평점')}<div class="row gap"><input class="input" data-f="gpa" inputmode="decimal" placeholder="3.8" value="${e.gpa || ''}" aria-label="평점"><span class="muted">/</span>${sel('data-f="gpaMax" aria-label="만점 기준"', ['4.5', '4.3', '4.0', '100'], e.gpaMax || '4.5', '만점')}</div></div>
+                </div>${err(`edu-${i}`)}`, { min: 1 })}
+            </section>
 
-          <fieldset ${hidden(6)}>
-            <legend class="h2">채용 진행을 위한 개인정보 안내</legend>
-            <div class="notice-box">
-              <p><strong>수집 항목</strong>: 성명, 이메일, 휴대전화, 학력, 경력, 자격·어학, 서술형 답변</p>
-              <p><strong>이용 목적</strong>: 지원자 식별, 전형 진행과 결과 안내</p>
-              <p><strong>보유 기간</strong>: 운영 기관이 확정한 보유 정책에 따름 (데모: 확정 전)</p>
-              <p><strong>증빙서류</strong>: 서류전형 합격자에게만 별도로 요청합니다.</p>
-              <p class="muted small">데모 문구입니다. 실제 동의·고지 문구는 운영 기관과 적용 인프라 기준으로 별도 확정해야 합니다.</p>
+            <section class="af__sec" id="sec-career">
+              <h2 class="h2">경력사항</h2>
+              <p class="af__hint">담당 업무와 역할을 구체적으로 적어 주세요. 경력이 없으면 비워 두세요.</p>
+              ${repeatBlock('car', '경력', form.career, (cr, i) => html`
+                <div class="grid-3">
+                  <label class="field">${lbl('회사명', true)}<input class="input" data-f="org" value="${cr.org}" ${errAttr(`car-${i}`)}></label>
+                  <label class="field">${lbl('부서')}<input class="input" data-f="dept" value="${cr.dept || ''}"></label>
+                  <label class="field">${lbl('직급·직무')}<input class="input" data-f="title" value="${cr.title}"></label>
+                  <label class="field">${lbl('고용형태')}${sel('data-f="type"', ['정규직', '계약직', '인턴', '프리랜서'], cr.type || (cr.intern ? '인턴' : ''))}</label>
+                  <label class="field">${lbl('입사 (연.월)', true)}<input class="input" data-f="from" placeholder="2021.03" value="${cr.from}"></label>
+                  <div class="field">${lbl('퇴사 (연.월)')}<input class="input" data-f="to" placeholder="2024.02" value="${cr.to || ''}"><label class="check small"><input type="checkbox" data-f="current" ${cr.current ? 'checked' : ''}> 재직 중</label></div>
+                </div>
+                <label class="field">${lbl('담당업무')}<textarea class="input" rows="3" data-f="duties">${cr.duties || ''}</textarea></label>
+                ${err(`car-${i}`)}`)}
+            </section>
+
+            <section class="af__sec" id="sec-extra">
+              <h2 class="h2">어학 / 자격 / 활동 <span class="muted small">선택</span></h2>
+              <h3 class="af__sub">어학·자격증</h3>
+              <p class="af__hint">지원일 기준 유효하고 증빙 가능한 것만 적어 주세요.</p>
+              ${repeatBlock('cert', '어학·자격', form.certs, (q) => html`
+                <div class="grid-3">
+                  <label class="field">${lbl('구분')}<select class="input" data-f="kind"><option value="cert" ${q.kind === 'cert' ? 'selected' : ''}>자격증</option><option value="lang" ${q.kind === 'lang' ? 'selected' : ''}>어학</option></select></label>
+                  <label class="field">${lbl('자격·시험명')}<input class="input" data-f="name" value="${q.name}"></label>
+                  <label class="field">${lbl('점수·등급')}<input class="input" data-f="score" value="${q.score || ''}"></label>
+                  <label class="field">${lbl('발급기관')}<input class="input" data-f="issuer" value="${q.issuer || ''}"></label>
+                  <label class="field">${lbl('취득일 (연.월)')}<input class="input" data-f="date" value="${q.date || ''}"></label>
+                </div>`)}
+              <h3 class="af__sub">수상·활동·교육</h3>
+              ${repeatBlock('act', '활동', form.activities || [], (ac, i) => html`
+                <div class="grid-3">
+                  <label class="field">${lbl('구분', true)}${sel('data-f="kind"', ACT_KINDS, ac.kind)}</label>
+                  <label class="field">${lbl('활동·상훈·과정명', true)}<input class="input" data-f="name" value="${ac.name || ''}" ${errAttr(`act-${i}`)}></label>
+                  <label class="field">${lbl('기관')}<input class="input" data-f="org" value="${ac.org || ''}"></label>
+                  <label class="field">${lbl('시작 (연.월)')}<input class="input" data-f="from" value="${ac.from || ''}"></label>
+                  <label class="field">${lbl('종료 (연.월)')}<input class="input" data-f="to" value="${ac.to || ''}"></label>
+                </div>
+                <label class="field">${lbl('내용')}<textarea class="input" rows="2" data-f="desc">${ac.desc || ''}</textarea></label>${err(`act-${i}`)}`)}
+            </section>
+
+            <section class="af__sec" id="sec-files">
+              <h2 class="h2">제출서류 <span class="muted small">선택</span></h2>
+              <p class="af__hint">포트폴리오, 상세 경력기술서 등 · PDF 1개, ${UPLOAD_POLICY.maxFile / 1024 / 1024}MB 이하 · 내지 않아도 불이익은 없습니다.</p>
+              ${form.attachment ? html`<div class="file-row"><span>📄 ${form.attachment.name} <span class="muted small">${fmtBytes(form.attachment.size)}</span></span><button type="button" class="link-btn small" data-action="remove-attach">삭제</button></div>`
+                : html`<label class="btn btn--secondary file-btn">파일 선택<input type="file" accept="application/pdf,.pdf" class="sr-only" data-onchange="attach"></label>`}
+              ${err('attachment')}
+            </section>
+
+            <section class="af__sec" id="sec-questions">
+              <h2 class="h2">추가질문</h2>
+              ${j.questions.map((qq) => { const v = form.essays?.[qq.key] || ''; return html`<label class="field">${lbl(qq.label, true)}
+                <span class="field__help">${qq.help}${qq.min ? ` (${qq.min}~${qq.limit}자)` : ` (최대 ${qq.limit}자)`}</span>
+                <textarea class="input" rows="7" data-essay="${qq.key}" data-limit="${qq.limit}" data-min="${qq.min || 0}" ${errAttr(`essay-${qq.key}`)}>${v}</textarea>
+                <span class="counter ${v.length > qq.limit || (qq.min && v.length && v.length < qq.min) ? 'is-over' : ''}" data-count-for="${qq.key}">${v.length} / ${qq.limit}</span>${err(`essay-${qq.key}`)}</label>`; })}
+              <fieldset class="field">
+                <legend class="field__label">채용 공고를 처음 접한 곳${req}</legend>
+                <span class="field__help">서류 전형과 무관합니다.</span>
+                <div class="radio-grid">${SOURCES.map((s) => html`<label class="check"><input type="radio" name="source" value="${s}" ${form.source === s ? 'checked' : ''}> ${s}</label>`)}</div>
+                ${form.source === '기타' ? html`<input name="sourceEtc" class="input" placeholder="직접 입력" value="${form.sourceEtc || ''}">` : ''}
+                ${err('source')}
+              </fieldset>
+            </section>
+
+            <section class="af__sec" id="sec-consent">
+              <h2 class="h2">개인정보 수집 및 이용 동의</h2>
+              <label class="check consent-all"><input type="checkbox" data-action="consent-all" ${allConsent ? 'checked' : ''}> <strong>전체 동의</strong></label>
+              <div class="consent-list">
+                ${[
+                  ['consent', '개인정보 필수항목 수집 및 이용 동의', true, c.agreed, '수집 항목: 이름, 영문이름, 생년월일, 연락처, 이메일, 병역, 학력, 경력, 서술형 답변 · 목적: 지원자 식별과 전형 진행·결과 안내 · 보유: 운영 기관이 확정한 기간'],
+                  ['consentOptional', '개인정보 선택항목 수집 및 이용 동의', false, c.optional, '수집 항목: 취업우대, 어학·자격, 수상·활동, 추가 제출서류 · 동의하지 않아도 지원할 수 있습니다.'],
+                  ['consentThird', '개인정보 제3자 제공 동의', false, c.thirdParty, '외부 심사위원에게 심사에 필요한 범위에서 제공 · 동의하지 않아도 지원할 수 있습니다.'],
+                ].map(([name, label, must, on, body]) => html`<div class="consent-item">
+                  <label class="check"><input type="checkbox" name="${name}" ${on ? 'checked' : ''} ${name === 'consent' ? errAttr('consent') : ''}> ${label} <span class="${must ? 'req-txt' : 'muted'} small">(${must ? '필수' : '선택'})</span></label>
+                  <details><summary>보기</summary><p>${body} <span class="muted">(데모 문구)</span></p></details>
+                </div>`)}
+              </div>
+              ${err('consent')}
+            </section>
+          </form>
+
+          <aside class="af__side" aria-label="작성 현황">
+            <nav class="af__toc" aria-label="지원서 목차">
+              ${SECTIONS.map((s) => { const done = sectionDone(s.id, form, j); return html`<a href="#sec-${s.id}" class="af__toc-link ${errSecs.has(s.id) ? 'has-error' : ''}" data-action="apply-jump" data-target="sec-${s.id}">
+                <span class="af__toc-mark ${done ? 'is-done' : ''}" aria-hidden="true">${errSecs.has(s.id) ? '!' : done ? '✓' : ''}</span>${s.label}</a>`; })}
+            </nav>
+            <div class="af__actions">
+              <p class="save-status" data-save-status aria-live="polite">${a?.savedAt ? html`자동 저장됨 · <time>${fmtTime(a.savedAt, true)}</time>` : '입력하면 자동 저장'}</p>
+              <button type="button" class="btn btn--primary btn--lg btn--block" data-action="submit-app" ${closed ? 'disabled' : ''}>${editing ? '재제출하기' : '제출하기'}</button>
+              <p class="muted small af__note">${j.allowResubmit ? '마감 전까지 고쳐서 다시 낼 수 있습니다.' : '제출 후에는 수정할 수 없습니다.'}</p>
             </div>
-            <label class="check"><input type="checkbox" name="consent" ${form.consent?.agreed ? 'checked' : ''} ${errAttr('consent')}> 위 내용을 확인했으며 채용 진행을 위한 개인정보 수집·이용에 동의합니다. <span class="req">필수</span></label>
-            ${err('consent')}
-          </fieldset>
-
-          <fieldset ${hidden(7)}>
-            <legend class="h2">최종 확인</legend>
-            <p>제출 전에 내용을 확인해 주세요. ${j.allowResubmit ? '마감 전까지 수정 후 재제출할 수 있으며, 마지막 제출본이 유효합니다.' : html`<strong>최종 제출 후에는 수정할 수 없습니다.</strong>`}</p>
-            <div class="stack">${applicationView({ ...(a || {}), jobId: j.id, form })}</div>
-          </fieldset>
-
-          <div class="apply-nav">
-            ${step > 1 ? html`<button type="button" class="btn btn--ghost" data-action="goto-step" data-step="${step - 1}">이전</button>` : html`<span></span>`}
-            ${step < 7 ? html`<button type="button" class="btn btn--primary" data-action="next-step" data-step="${step}">다음</button>`
-              : html`<button type="button" class="btn btn--primary btn--lg" data-action="submit-app" ${closed ? 'disabled' : ''}>${editing ? '재제출하기' : '최종 제출'}</button>`}
-          </div>
-        </form>
+          </aside>
+        </div>
       </div>`, 'jobs');
   },
   mounted() {
@@ -481,64 +555,83 @@ export const apply = {
     autosave: (formEl, e) => {
       const ta = e.target.closest('[data-essay]');
       if (ta) {
-        const c = document.querySelector(`[data-count-for="${ta.dataset.essay}"]`);
-        const lim = Number(ta.dataset.limit);
-        if (c) { c.textContent = `${ta.value.length} / ${lim}자`; c.classList.toggle('is-over', ta.value.length > lim); }
+        const cnt = document.querySelector(`[data-count-for="${ta.dataset.essay}"]`);
+        const lim = Number(ta.dataset.limit); const min = Number(ta.dataset.min);
+        if (cnt) { cnt.textContent = `${ta.value.length} / ${lim}`; cnt.classList.toggle('is-over', ta.value.length > lim || (min && ta.value.length && ta.value.length < min)); }
       }
+      if (e.target.name === 'source' || ['consent', 'consentOptional', 'consentThird'].includes(e.target.name)) { persist(); rerender(); return; }
       const s = document.querySelector('[data-save-status]');
       if (s) s.textContent = '저장 중…';
       autosaveDebounced(formEl);
     },
   },
-  actions: {
-    'goto-step': (el) => { persist(); formErrors = {}; go(Number(el.dataset.step)); },
-    'next-step': (el) => {
+  changes: {
+    attach: (el) => {
+      const file = el.files?.[0];
+      if (!file) return;
       const form = persist();
-      const step = Number(el.dataset.step);
-      const j = st.job(document.querySelector('[data-form=apply]').dataset.job);
-      const all = st.validateForm(j, form);
-      const pick = {
-        1: ['positionId', 'name', 'phone'],
-        2: Object.keys(all).filter((k) => k === 'education' || k.startsWith('edu-')),
-        3: Object.keys(all).filter((k) => k.startsWith('car-')),
-        4: [],
-        5: Object.keys(all).filter((k) => k.startsWith('essay-')),
-        6: ['consent'],
-      }[step] || [];
-      formErrors = Object.fromEntries(pick.filter((k) => all[k]).map((k) => [k, all[k]]));
-      if (Object.keys(formErrors).length) { rerender(); return; }
-      go(step + 1);
+      if (!/\.pdf$/i.test(file.name)) { toast('PDF 파일만 올릴 수 있습니다.', 'danger'); return; }
+      if (file.size > UPLOAD_POLICY.maxFile) { toast(`${UPLOAD_POLICY.maxFile / 1024 / 1024}MB 이하 파일만 올릴 수 있습니다.`, 'danger'); return; }
+      form.attachment = { name: file.name, size: file.size, at: st.now().toISOString() };
+      saveForm(form); rerender();
+      toast('파일을 첨부했습니다. (데모: 파일 내용은 저장하지 않음)', 'success');
     },
+  },
+  actions: {
+    'apply-jump': (el) => document.getElementById(el.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+    'consent-all': (el) => {
+      const on = el.checked;
+      for (const n of ['consent', 'consentOptional', 'consentThird']) { const x = document.querySelector(`[name="${n}"]`); if (x) x.checked = on; }
+      persist(); rerender();
+    },
+    'remove-attach': () => { const form = persist(); form.attachment = null; saveForm(form); rerender(); },
     'add-row': (el) => {
       const form = persist();
       const kind = el.dataset.kind;
-      const id = `${kind[0]}${Date.now().toString(36)}`;
-      if (kind === 'education') form.education.push({ id, school: '', major: '', degree: '학사', status: '졸업', from: '', to: '' });
-      if (kind === 'career') form.career.push({ id, org: '', title: '', from: '', to: '', current: false, duties: '' });
-      if (kind === 'certs') form.certs.push({ id, kind: 'cert', name: '', score: '', issuer: '', date: '' });
+      const id = `${kind}${Date.now().toString(36)}`;
+      if (kind === 'edu') form.education.push({ id, school: '', major: '', degree: '학사', status: '졸업', entry: '입학', from: '', to: '', gpa: '', gpaMax: '4.5' });
+      if (kind === 'car') form.career.push({ id, org: '', dept: '', title: '', type: '', from: '', to: '', current: false, duties: '' });
+      if (kind === 'cert') form.certs.push({ id, kind: 'cert', name: '', score: '', issuer: '', date: '' });
+      if (kind === 'act') (form.activities ||= []).push({ id, kind: '', name: '', org: '', from: '', to: '', desc: '' });
       saveForm(form);
       rerender();
-      setTimeout(() => { const rows = document.querySelectorAll(`[data-row="${kind === 'education' ? 'edu' : kind === 'career' ? 'car' : 'cert'}"]`); rows[rows.length - 1]?.querySelector('input')?.focus(); });
+      setTimeout(() => { const rows = document.querySelectorAll(`[data-row="${kind}"]`); rows[rows.length - 1]?.querySelector('input, select')?.focus(); });
     },
     'remove-row': (el) => {
       const form = persist();
-      form[el.dataset.kind] = form[el.dataset.kind].filter((r) => r.id !== el.dataset.id);
+      const key = { edu: 'education', car: 'career', cert: 'certs', act: 'activities' }[el.dataset.kind];
+      form[key] = form[key].filter((r) => r.id !== el.dataset.id);
       saveForm(form);
       rerender();
     },
-    'submit-app': (el) => {
+    'submit-app': () => {
+      const form = persist();
+      const j = st.job(document.querySelector('[data-form=apply]').dataset.job);
+      formErrors = st.validateForm(j, form);
+      if (Object.keys(formErrors).length) {
+        rerender();
+        document.getElementById('error-summary')?.scrollIntoView({ block: 'center' });
+        return;
+      }
+      const acc = st.currentAccount();
+      const a = st.draftFor(acc.id, j.id);
+      openModal(html`
+        <p>${j.allowResubmit ? '마감 전까지 고쳐서 다시 낼 수 있으며, 마지막 제출본이 유효합니다.' : html`<strong>제출 후에는 수정할 수 없습니다.</strong>`} 내용을 확인해 주세요.</p>
+        <div class="stack">${applicationView({ ...(a || {}), jobId: j.id, form })}</div>
+        <div class="row gap end modal__foot"><button type="button" class="btn btn--ghost" data-action="close-modal">계속 작성</button><button type="button" class="btn btn--primary" data-action="confirm-submit" data-job="${j.id}">최종 제출</button></div>`, { title: '제출 전 확인', wide: true });
+    },
+    'confirm-submit': (el) => {
       if (submitting) return;
       submitting = true;
       el.disabled = true; el.textContent = '제출 중…';
-      const form = persist();
+      const jobId = el.dataset.job;
       const acc = st.currentAccount();
-      const jobId = document.querySelector('[data-form=apply]').dataset.job;
-      let a = st.draftFor(acc.id, jobId);
-      if (!a) { const r = st.saveDraft(acc.id, jobId, form); a = r.app; }
-      if (!a) { submitting = false; toast('저장에 실패해 제출하지 못했습니다. 다시 시도해 주세요.', 'danger'); rerender(); return; }
+      const a = st.draftFor(acc.id, jobId);
+      if (!a) { submitting = false; closeModal(); toast('저장에 실패해 제출하지 못했습니다. 다시 시도해 주세요.', 'danger'); return; }
       setTimeout(() => { // 네트워크 지연 흉내
         const r = st.submitApplication(a.id);
         submitting = false;
+        closeModal();
         if (r.ok) { formErrors = {}; navigate(`/me/${a.id}?submitted=1`); return; }
         if (r.error === 'deadline') { toast('접수 마감 시각이 지나 제출할 수 없습니다. 서버 접수 시각 기준으로 판정합니다.', 'danger'); rerender(); return; }
         formErrors = r.errors || {};
@@ -547,7 +640,7 @@ export const apply = {
       }, 600);
     },
     'cancel-edit': (el) => { st.cancelEdit(el.dataset.id); navigate(`/me/${el.dataset.id}`); },
-    'retry-save': () => { const f = document.querySelector('[data-form=apply]'); if (f) doAutosave(f); },
+    'retry-save': () => { const fe = document.querySelector('[data-form=apply]'); if (fe) doAutosave(fe); },
   },
 };
 
@@ -556,6 +649,7 @@ function persist() {
   const { form } = currentFormState(formEl.dataset.job);
   const next = serialize(formEl, form);
   saveForm(next);
+  if (Object.keys(formErrors).length) { const now = st.validateForm(st.job(formEl.dataset.job), next); for (const k of Object.keys(formErrors)) if (!now[k]) delete formErrors[k]; }
   return next;
 }
 function saveForm(form) {
@@ -574,14 +668,25 @@ function doAutosave(formEl) {
   const r = st.saveDraft(st.currentAccount().id, formEl.dataset.job, next);
   const s = document.querySelector('[data-save-status]');
   if (!s) return;
+  if (r.ok) clearResolvedErrors(formEl.dataset.job, next);
   if (r.ok) { pendingUnsaved = null; s.innerHTML = String(html`자동 저장됨 · <time>${fmtTime(r.savedAt, true)}</time>`); s.classList.remove('is-error'); }
   else { pendingUnsaved = next; s.innerHTML = String(html`<span>저장하지 못했습니다.</span> <button type="button" class="link-btn" data-action="retry-save">다시 시도</button>`); s.classList.add('is-error'); }
 }
 const autosaveDebounced = debounce(doAutosave, 700);
-function go(step) {
-  const formEl = document.querySelector('[data-form=apply]');
-  navigate(`/apply/${formEl.dataset.job}?step=${step}`);
-  window.scrollTo(0, 0);
+/** 고친 항목의 오류 표시를 입력 중에 바로 지운다 (다시 그리지 않아 입력 위치 유지) */
+function clearResolvedErrors(jobId, form) {
+  if (!Object.keys(formErrors).length) return;
+  const now = st.validateForm(st.job(jobId), form);
+  for (const k of Object.keys(formErrors)) {
+    if (now[k]) continue;
+    delete formErrors[k];
+    document.getElementById(`err-${k}`)?.remove();
+    document.querySelectorAll(`[aria-describedby="err-${k}"]`).forEach((el) => { el.removeAttribute('aria-invalid'); el.removeAttribute('aria-describedby'); });
+    document.querySelector(`[data-err="${k}"]`)?.remove();
+  }
+  const box = document.getElementById('error-summary');
+  const n = Object.keys(formErrors).length;
+  if (box) { if (!n) box.remove(); else box.querySelector('strong').textContent = `확인이 필요한 항목이 ${n}개 있습니다.`; }
 }
 
 // ───────── 증빙서류 제출 ─────────
