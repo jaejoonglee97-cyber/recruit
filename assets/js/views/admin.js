@@ -664,6 +664,21 @@ const NSTAT = {
   skipped: { label: '발송 제외', tone: 'neutral' },
 };
 
+function jobAlertPanel(me) {
+  const subs = st.alertSubs();
+  const sends = st.alertSends();
+  const openJobs = JOBS.filter((j) => ['open', 'upcoming'].includes(st.jobStatus(j).key));
+  return html`<section class="section-sm">
+    <h2 class="h2">채용 공고 알림 구독</h2>
+    <p class="muted small">채용 홈의 ‘채용 공고 알림 받기’로 신청한 사람입니다. 관심 직군이 겹치는 공고만, 공고당 한 번씩 보냅니다. 수신 거부 시 목록에서 바로 빠집니다.</p>
+    ${me.role === 'recruiter' ? html`<div class="row gap wrap" style="margin-bottom:12px">${openJobs.map((j) => html`<button type="button" class="btn btn--secondary btn--sm" data-action="send-job-alert" data-id="${j.id}" ${subs.length ? '' : 'disabled'}>‘${j.title}’ 알림 발송</button>`)}</div>` : ''}
+    ${subs.length ? html`<div class="table-wrap"><table class="table table--compact">
+      <thead><tr><th scope="col">신청</th><th scope="col">이메일</th><th scope="col">관심 직군</th><th scope="col">받은 공고 알림</th></tr></thead>
+      <tbody>${subs.map((x) => html`<tr><td>${fmtShort(x.createdAt)}</td><td>${maskEmail(x.email)}</td><td>${x.categories.join(', ')}</td><td>${sends.filter((s) => s.subId === x.id).length}건</td></tr>`)}</tbody>
+    </table></div>` : empty('아직 신청한 사람이 없습니다. 채용 홈 하단의 알림 신청 양식으로 시험해 보세요.')}
+  </section>`;
+}
+
 export const notifications = {
   title: '알림',
   render(p, q) {
@@ -688,7 +703,8 @@ export const notifications = {
             <td>${me.role === 'recruiter' && ['bounced', 'failed'].includes(n.status) ? html`<button type="button" class="link-btn" data-action="fix-email" data-acc="${acc.id}">연락처 수정</button> · <button type="button" class="link-btn" data-action="resend" data-id="${n.id}">재발송</button>` : ''}</td>
           </tr>`; })}</tbody>
         </table></div>
-        ${list.length > 200 ? html`<p class="muted small">최근 200건만 표시합니다.</p>` : ''}`;
+        ${list.length > 200 ? html`<p class="muted small">최근 200건만 표시합니다.</p>` : ''}
+        ${jobAlertPanel(me)}`;
     });
   },
   actions: {
@@ -699,6 +715,7 @@ export const notifications = {
         <label class="field"><span class="field__label">확인된 이메일 (본인 확인 후 수정)</span><input type="email" class="input" name="email" required value="${acc.email}"></label>
         <div class="row gap end"><button type="button" class="btn btn--ghost" data-action="close-modal">취소</button><button class="btn btn--primary">수정</button></div></form>`, { title: '연락처 수정' });
     },
+    'send-job-alert': (el) => { const r = st.sendJobAlert(el.dataset.id); toast(`채용 알림 발송 ${r.sent}건${r.skipped ? ` · 이미 받은 ${r.skipped}명 제외` : ''} (데모: 실제 메일 없음)`, 'success'); rerender(); },
     'run-reminders': () => { const r = st.runReminders(); toast(`발송 직전 제출 상태를 다시 확인했습니다. 발송 ${r.sent}건 · 제외 ${r.skipped}건`, 'success'); rerender(); },
   },
   forms: {

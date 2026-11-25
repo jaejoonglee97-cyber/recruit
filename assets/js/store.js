@@ -2,7 +2,7 @@
 // ⚠ 시제품 전용: 모든 데이터는 이 브라우저의 localStorage에만 저장된다.
 //    운영 버전에서는 서버·DB·비공개 파일 저장소와 서버 측 권한 검사로 대체해야 한다(기획서 11·12장).
 
-import { DATA_VERSION, DEMO_CLOCK_DEFAULT, JOBS, POSITIONS, STAFF, STAGES, kst, UPLOAD_POLICY, CONSENT_VERSION } from './data/seed.js';
+import { DATA_VERSION, DEMO_CLOCK_DEFAULT, JOBS, POSITIONS, STAFF, STAGES, kst, UPLOAD_POLICY, CONSENT_VERSION, ALERT_CONSENT_VERSION } from './data/seed.js';
 import { buildDataset } from './data/personas.js';
 
 const KEY = 'anf-recruit-demo';
@@ -606,3 +606,51 @@ export const IV_RESP = {
   ask: { label: '일정 문의', tone: 'warn' },
   null: { label: '미응답', tone: 'neutral' },
 };
+
+// ── 채용 공고 알림 구독 (그리팅의 외부 설문 폼 대신 자체 수집) ──
+// 운영 버전: 이중 확인(확인 메일 링크), 수신거부 링크, 보유기간 경과 시 자동 파기 필요
+function alertsState() {
+  if (!state.alerts) state.alerts = { subs: [], sends: [] };
+  return state.alerts;
+}
+export const alertSubs = () => alertsState().subs.filter((x) => !x.unsubscribedAt);
+export const alertSends = () => alertsState().sends;
+
+export function subscribeAlert(email, categories, consent) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok: false, error: '이메일 주소 형식을 확인해 주세요.' };
+  if (!categories?.length) return { ok: false, error: '관심 직군을 하나 이상 골라 주세요.' };
+  if (!consent) return { ok: false, error: '알림 수신을 위한 개인정보 수집·이용에 동의해 주세요.' };
+  const A = alertsState();
+  const prev = A.subs.find((x) => x.email === e && !x.unsubscribedAt);
+  if (prev) { prev.categories = categories; prev.updatedAt = nowISO(); save(); return { ok: true, updated: true }; }
+  A.subs.push({ id: `A${String(A.subs.length + 1).padStart(4, '0')}`, email: e, categories, consentVersion: ALERT_CONSENT_VERSION, createdAt: nowISO() });
+  save();
+  return { ok: true };
+}
+
+export function unsubscribeAlert(email) {
+  const e = String(email || '').trim().toLowerCase();
+  const sub = alertsState().subs.find((x) => x.email === e && !x.unsubscribedAt);
+  if (!sub) return { ok: false, error: '구독 중인 이메일이 아닙니다.' };
+  sub.unsubscribedAt = nowISO();
+  save();
+  return { ok: true };
+}
+
+/** 공고 오픈 알림 발송 — 관심 직군이 겹치는 구독자에게만, 같은 공고는 한 번만 */
+export function sendJobAlert(jobId) {
+  const j = job(jobId);
+  const A = alertsState();
+  const cats = j.filter?.category || [];
+  let sent = 0; let skipped = 0;
+  for (const sub of alertSubs()) {
+    if (A.sends.some((x) => x.jobId === jobId && x.subId === sub.id)) { skipped++; continue; }
+    if (!sub.categories.some((c) => cats.includes(c))) continue;
+    A.sends.push({ jobId, subId: sub.id, email: sub.email, at: nowISO() });
+    sent++;
+  }
+  log(state.staffSession?.staffId || 'system', '채용 알림 발송', j.title, `발송 ${sent}건 · 이미 받음 ${skipped}건`);
+  save();
+  return { sent, skipped };
+}

@@ -10,6 +10,12 @@ export const ORG = {
   name: '아산나눔재단',
   siteTitle: '아산나눔재단 채용',
   contact: '채용 담당자 recruit@example.com (데모용 가상 주소)',
+  /** 재단 공식 채널 — 푸터에 표시 */
+  sns: [
+    { key: 'facebook', label: '페이스북', url: 'https://www.facebook.com/TheAsanNanum' },
+    { key: 'blog', label: '네이버 블로그', url: 'https://blog.naver.com/asan_nanum' },
+    { key: 'youtube', label: '유튜브', url: 'https://www.youtube.com/channel/UCGcV3lb8krcPJqxW4Pi0ofg' },
+  ],
 };
 
 export const DATA_VERSION = 4;
@@ -32,6 +38,7 @@ export const JOBS = [
     id: 'J26H2',
     title: '2026년 하반기 신규 직원 채용',
     employment: '정규직 (수습 3개월)',
+    filter: { category: ['사업 매니저', '경영지원'], career: '신입·경력', type: '정규직', place: '서울' },
     place: '서울 (재단 사무실)',
     apply: { from: kst(2026, 11, 3, 10, 0), to: kst(2026, 11, 16, 23, 59, 59) },
     positions: ['P1', 'P2', 'P3', 'P4'],
@@ -61,6 +68,7 @@ export const JOBS = [
     id: 'J26MARU',
     title: '2026 MARU 커뮤니티 매니저 수시채용',
     employment: '계약직 (1년, 평가 후 연장 가능)',
+    filter: { category: ['사업 매니저'], career: '경력 1년 이상', type: '계약직', place: '서울' },
     place: '서울 (MARU 공간)',
     apply: { from: kst(2026, 11, 20, 10, 0), to: kst(2026, 12, 7, 23, 59, 59) },
     positions: ['M1'],
@@ -86,6 +94,7 @@ export const JOBS = [
     id: 'J27H1',
     title: '2027년 상반기 신입·경력 공개채용',
     employment: '정규직',
+    filter: { category: ['사업 매니저', '경영지원'], career: '신입·경력', type: '정규직', place: '서울' },
     place: '서울',
     apply: { from: kst(2027, 1, 12, 10, 0), to: null },
     positions: [],
@@ -106,6 +115,7 @@ export const JOBS = [
     id: 'J26H1',
     title: '2026년 상반기 경력직 채용',
     employment: '정규직',
+    filter: { category: ['사업 매니저'], career: '경력 3년 이상', type: '정규직', place: '서울' },
     place: '서울',
     apply: { from: kst(2026, 5, 11, 10, 0), to: kst(2026, 5, 24, 23, 59, 59) },
     positions: ['H1'],
@@ -210,4 +220,72 @@ export const INTERVIEW_PLACE = {
   waiting: '3층 라운지에서 대기',
   mode: '대면 개인 면접 (약 20분)',
   bring: '신분증',
+};
+
+/** 공고 필터 분류 — 그리팅 채용 홈의 직군·경력사항·고용형태·근무지 필터에 대응 */
+export const JOB_FILTERS = [
+  { key: 'category', label: '직군' },
+  { key: 'career', label: '경력사항' },
+  { key: 'type', label: '고용형태' },
+  { key: 'place', label: '근무지' },
+];
+
+/** 채용 알림 구독 시 고를 수 있는 관심 직군 */
+export const ALERT_CATEGORIES = ['사업 매니저', '경영지원', '체험형 인턴'];
+export const ALERT_CONSENT_VERSION = '채용 알림 수신 동의 v2026.11 (데모)';
+
+/**
+ * 채용 브랜드 홈 콘텐츠.
+ * 일하는 방식·근무 환경·FAQ 문구는 현재 운영 중인 그리팅 채용 홈(asannanum.career.greetinghr.com)의
+ * 공개 문구를 요약해 옮긴 것입니다. 실제 게시 전 재단 담당자의 최신 문구 확인이 필요합니다.
+ * 이 파일만 고치면 화면이 바뀌므로, 운영 버전에서는 관리자 화면(CMS)에서 편집하도록 옮기면 됩니다.
+ */
+export const CAREER_SITE = {
+  vision: '할 수 있다고 생각하면 이룰 수 있는 세상',
+  about: '청년 창업가와 사회혁신가가 도전하고, 성장하고, 나누는 기반을 만들고자 합니다.',
+  aboutDetail: '아산나눔재단은 2011년 10월, 아산 정주영 명예회장의 10주기를 맞아 출범한 공익재단입니다. 기업가정신 교육, 청년창업 지원, 사회혁신 지원, 혁신 생태계 조성 사업으로 기업가정신을 확산합니다.',
+  areas: [
+    { name: '기업가정신 교육', text: '청소년·청년이 문제를 발견하고 해결해 보는 경험을 만듭니다.' },
+    { name: '청년창업 지원', text: '창업 플랫폼 MARU에서 공간·네트워크·교육을 제공합니다.' },
+    { name: '사회혁신 지원', text: '사회문제를 새로운 방식으로 푸는 혁신가를 지원합니다.' },
+    { name: '혁신 생태계 조성', text: '연구·콘텐츠·네트워크로 기업가정신 생태계를 넓힙니다.' },
+  ],
+  principles: [
+    { en: 'Strategic Social Impact', ko: '전략적 사회성과', text: '우리가 하는 모든 활동은 재단의 미션과 비전을 달성하기 위함입니다.' },
+    { en: 'Aim Higher', ko: '담대한 목표 추구', text: '더 나은 결과물에 대한 표준을 세우기 위한 작은 시도들을 멈추지 않습니다.' },
+    { en: 'Self-directed Learning', ko: '주도적 학습', text: '새로운 것에 대한 호기심과 배우고 성장하려는 욕구가 나와 조직을 함께 키웁니다.' },
+    { en: 'Disciplined Autonomy', ko: '자율 속의 규율', text: '공익법인의 일원으로서 엄격한 윤리의식을 바탕으로 품격 있게 말하고 행동합니다.' },
+    { en: 'Diversity & Inclusivity', ko: '다양성 존중과 포용', text: '개개인의 강점과 몰입하는 방식이 다르다는 점을 인정하고 배려합니다.' },
+    { en: 'Extreme Transparency', ko: '최고 수준의 정보 공유', text: '최고 수준의 자율성은 최고 수준의 공유에서 나옵니다.' },
+    { en: 'One ASAN', ko: '경계 없는 협업', text: '높은 목표를 위해 팀의 경계 없이 협업합니다.' },
+  ],
+  benefits: [
+    { name: '선택 근무제', text: '10분 단위로 출퇴근 시각을 정하고, 4시간 이후에는 유연하게 조정합니다.' },
+    { name: '하이브리드 근무', text: '그날의 업무에 맞춰 일할 장소를 고릅니다.' },
+    { name: '워케이션 지원', text: '휴양지에서 일할 수 있도록 숙박·식비 일부를 지원합니다.' },
+    { name: '자유로운 휴가', text: '2시간 단위부터 장기 휴가까지 필요한 만큼 나눠 씁니다.' },
+    { name: '수평적 소통', text: '상호 존댓말과 ‘님’ 호칭을 기본으로 합니다.' },
+    { name: '동호회 지원', text: '자발적으로 꾸린 취미 모임을 지원합니다.' },
+    { name: '교육 지원', text: '외부 교육·세미나·컨퍼런스 참가비, 장기근속자 대학원 학비를 지원합니다.' },
+    { name: '팀 워크숍', text: '팀이 스스로 기획하는 워크숍을 지원합니다.' },
+    { name: '출산·양육 지원', text: '임신·육아기 근로시간 단축, 자녀 교육비를 지원합니다.' },
+    { name: '장기근속 리프레시', text: '3·6·10년 근속 시 휴가와 포상금을 드립니다.' },
+    { name: '신규입사자 적응 지원', text: '3개월간 버디 프로그램으로 적응을 돕습니다.' },
+    { name: '건강검진', text: '매년 본인과 가족 2인의 종합검진을 지원합니다.' },
+  ],
+  // url: 직원 인터뷰 블로그 글 주소 (비워 두면 '준비 중'으로 표시)
+  stories: [
+    { team: '기업가정신팀', url: '' },
+    { team: '스타트업팀', url: '' },
+    { team: '사회혁신팀', url: '' },
+    { team: '글로벌팀', url: '' },
+    { team: '경영지원팀', url: '' },
+    { team: '체험형 인턴', url: '' },
+  ],
+  faq: [
+    { q: '여러 공고에 중복 지원할 수 있나요?', a: '한 공고에만 지원할 수 있습니다. 인턴 채용은 한 팀에만 지원할 수 있습니다.' },
+    { q: '자격 요건의 경력 기준에 맞지 않아도 지원할 수 있나요?', a: '네. 기재한 요건은 일반적인 기준이며, 그에 준하는 경험과 역량이 있다면 지원할 수 있습니다.' },
+    { q: '포트폴리오·경력기술서 같은 추가 서류를 내지 않으면 불이익이 있나요?', a: '없습니다. 추가 서류는 선택이며 심사 결과에 영향을 주지 않습니다.' },
+    { q: '서류전형 결과는 어떻게 알 수 있나요?', a: '발표일에 이 사이트의 ‘내 지원현황’에서 확인할 수 있고, 이메일로도 안내합니다. 메일을 받지 못해도 사이트에서 결과를 확인할 수 있습니다. 일정이 바뀌면 전체 지원자에게 알립니다.' },
+  ],
 };

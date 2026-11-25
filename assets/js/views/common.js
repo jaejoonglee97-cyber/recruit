@@ -1,4 +1,4 @@
-import { html, fmtDT, fmtShort, fmtD } from '../util.js';
+import { html, raw, fmtDT, fmtShort, fmtD } from '../util.js';
 import * as st from '../store.js';
 import { ROLES, STAFF, ORG, CLOCK_PRESETS } from '../data/seed.js';
 
@@ -49,6 +49,16 @@ export function siteHeader(active = '') {
   </header>`;
 }
 
+const SNS_ICON = {
+  facebook: '<path d="M14 8h3V4h-3c-2.8 0-4.5 1.8-4.5 4.6V11H7v4h2.5v8h4v-8h3l.5-4h-3.5V8.8c0-.5.3-.8.5-.8z"/>',
+  blog: '<path d="M4 4h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-6l-2 2.5L10 18H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm3.2 4v6h2.1c1.3 0 2.1-.7 2.1-1.7 0-.7-.4-1.2-1-1.4.5-.2.8-.6.8-1.2 0-1-.8-1.7-2-1.7zm1.3 1h.7c.5 0 .8.3.8.7s-.3.7-.8.7h-.7zm0 2.4h.9c.5 0 .9.3.9.8s-.4.8-.9.8h-.9zM13 8v6h3.6v-1.1h-2.3V8z"/>',
+  youtube: '<path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 0 0 2.4 7.2 26 26 0 0 0 2 12a26 26 0 0 0 .4 4.8 2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8A26 26 0 0 0 22 12a26 26 0 0 0-.4-4.8zM10 15V9l5.2 3z"/>',
+};
+
+export function snsLinks() {
+  return html`<ul class="sns" aria-label="아산나눔재단 공식 채널">${ORG.sns.map((s) => html`<li><a class="sns__link" href="${s.url}" target="_blank" rel="noopener noreferrer" aria-label="${s.label} (새 창)"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor">${raw(SNS_ICON[s.key])}</svg><span>${s.label}</span></a></li>`)}</ul>`;
+}
+
 export function siteFooter() {
   return html`<footer class="site-footer">
     <div class="container site-footer__inner">
@@ -58,6 +68,7 @@ export function siteFooter() {
         <p>이 사이트는 데모입니다. 표시되는 공고·지원자·담당자·연락처는 모두 가상이며 실제 채용과 관계가 없습니다. 입력한 내용은 이 브라우저에만 저장되고 서버로 전송되지 않습니다.</p>
         <p>문의(데모): ${ORG.contact}</p>
       </div>
+      ${snsLinks()}
     </div>
   </footer>`;
 }
