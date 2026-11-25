@@ -55,9 +55,9 @@ export const JOBS = [
       { key: 'final_result', label: '최종 결과 발표', at: kst(2026, 12, 4, 10, 0), tentative: true },
     ],
     questions: [
-      { key: 'intro', label: '자기소개', limit: 1000, help: '본인을 잘 보여주는 경험과 강점을 중심으로 작성해 주세요.' },
-      { key: 'motive', label: '지원동기', limit: 1000, help: '재단과 지원 직무를 선택한 이유를 작성해 주세요.' },
-      { key: 'experience', label: '직무 관련 경험', limit: 1000, help: '지원 직무와 관련된 경험과 그 결과를 구체적으로 작성해 주세요.' },
+      { key: 'intro', label: '자기소개', min: 300, limit: 1000, help: '본인을 잘 보여주는 경험과 강점을 중심으로 작성해 주세요.' },
+      { key: 'motive', label: '지원동기', min: 300, limit: 1000, help: '재단과 지원 직무를 선택한 이유를 작성해 주세요.' },
+      { key: 'experience', label: '직무 관련 경험', min: 300, limit: 1000, help: '지원 직무와 관련된 경험과 그 결과를 구체적으로 작성해 주세요.' },
     ],
     changes: [
       { at: kst(2026, 11, 3, 10, 0), text: '공고 게시' },

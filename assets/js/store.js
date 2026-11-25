@@ -181,16 +181,22 @@ export function saveDraft(accountId, jobId, form) {
 export function validateForm(j, form) {
   const errors = {};
   if (!form.positionId) errors.positionId = '지원분야를 선택해 주세요.';
-  if (!form.name?.trim()) errors.name = '성명을 입력해 주세요.';
+  if (!form.name?.trim()) errors.name = '이름을 입력해 주세요.';
+  if (!form.nameEn?.trim()) errors.nameEn = '영문이름을 입력해 주세요.';
+  if (!form.birth) errors.birth = '생년월일을 입력해 주세요.';
   if (!/^01[016789]-?\d{3,4}-?\d{4}$/.test(form.phone || '')) errors.phone = '휴대전화 번호를 010-0000-0000 형식으로 입력해 주세요.';
+  if (!form.military) errors.military = '병역사항을 선택해 주세요.';
   if (!form.education?.length) errors.education = '학력을 1개 이상 입력해 주세요.';
-  (form.education || []).forEach((e, i) => { if (!e.school?.trim() || !e.major?.trim()) errors[`edu-${i}`] = `학력 ${i + 1}의 학교명과 전공을 입력해 주세요.`; });
+  (form.education || []).forEach((e, i) => { if (!e.school?.trim() || !e.major?.trim() || !e.from) errors[`edu-${i}`] = `학력 ${i + 1}의 학교명·전공·입학 시점을 입력해 주세요.`; });
   (form.career || []).forEach((c, i) => { if (!c.org?.trim() || !c.from) errors[`car-${i}`] = `경력 ${i + 1}의 기관명과 시작 시점을 입력해 주세요.`; });
   for (const q of j.questions) {
     const v = form.essays?.[q.key] || '';
     if (!v.trim()) errors[`essay-${q.key}`] = `${q.label}을(를) 작성해 주세요.`;
     else if (v.length > q.limit) errors[`essay-${q.key}`] = `${q.label}이(가) ${q.limit}자를 넘었습니다. (${v.length}자)`;
+    else if (q.min && v.length < q.min) errors[`essay-${q.key}`] = `${q.label}을(를) ${q.min}자 이상 작성해 주세요. (${v.length}자)`;
   }
+  (form.activities || []).forEach((x, i) => { if (!x.kind || !x.name?.trim()) errors[`act-${i}`] = `활동 ${i + 1}의 구분과 이름을 입력해 주세요.`; });
+  if (!form.source) errors.source = '채용 공고를 처음 접한 곳을 골라 주세요.';
   if (!form.consent?.agreed) errors.consent = '채용 진행을 위한 개인정보 안내에 동의해야 제출할 수 있습니다.';
   return errors;
 }
